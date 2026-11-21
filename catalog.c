@@ -29,6 +29,10 @@
   #include <unistd.h>
 #endif
 
+#if HAVE_DECL_GLOB
+  #include <glob.h>
+#endif
+
 #include <libxml/xmlmemory.h>
 #include <libxml/hash.h>
 #include <libxml/uri.h>
@@ -3189,6 +3193,51 @@ xmlInitCatalogInternal(void) {
     xmlInitRMutex(&xmlCatalogMutex);
 }
 
+/*
+ * Append a catalog entry for @path at *@nextent.  A local path or file://
+ * URI containing a wildcard (*, ? or [) stands for every existing file it
+ * matches, in sorted order, as glob(3) expands it; a pattern matching
+ * nothing adds no entry.
+ */
+static void
+xmlAddDefaultCatalogEntry(xmlCatalogEntryPtr **nextent, const char *path) {
+#if HAVE_DECL_GLOB
+    const char *pattern = path;
+    int prefix_len = 0;
+    glob_t matches;
+    size_t i;
+
+    if (strncmp(path, "file://", 7) == 0) {
+        pattern = path + 7;
+        prefix_len = 7;
+    }
+    if ((pattern[0] == '/') && (strpbrk(pattern, "*?[") != NULL)) {
+        if (glob(pattern, 0, NULL, &matches) == 0) {
+            for (i = 0; i < matches.gl_pathc; i++) {
+                xmlChar *entry;
+
+                entry = xmlStrndup(BAD_CAST path, prefix_len);
+                if (entry != NULL)
+                    entry = xmlStrcat(entry, BAD_CAST matches.gl_pathv[i]);
+                if (entry == NULL)
+                    continue;
+                **nextent = xmlNewCatalogEntry(XML_CATA_CATALOG, NULL, NULL,
+                        entry, xmlCatalogDefaultPrefer, NULL);
+                if (**nextent != NULL)
+                    *nextent = &((**nextent)->next);
+                xmlFree(entry);
+            }
+            globfree(&matches);
+        }
+        return;
+    }
+#endif
+    **nextent = xmlNewCatalogEntry(XML_CATA_CATALOG, NULL, NULL,
+            BAD_CAST path, xmlCatalogDefaultPrefer, NULL);
+    if (**nextent != NULL)
+        *nextent = &((**nextent)->next);
+}
+
 /**
  * Load the default system catalog.
  */
@@ -3228,10 +3277,7 @@ xmlInitializeCatalog(void) {
 			cur++;
 		    path = (char *) xmlStrndup((const xmlChar *)paths, cur - paths);
 		    if (path != NULL) {
-			*nextent = xmlNewCatalogEntry(XML_CATA_CATALOG, NULL,
-				NULL, BAD_CAST path, xmlCatalogDefaultPrefer, NULL);
-			if (*nextent != NULL)
-			    nextent = &((*nextent)->next);
+			xmlAddDefaultCatalogEntry(&nextent, path);
 			xmlFree(path);
 		    }
 		}
