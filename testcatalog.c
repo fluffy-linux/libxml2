@@ -12,6 +12,12 @@
 
 #include "libxml.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if HAVE_DECL_GLOB && !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #ifdef LIBXML_CATALOG_ENABLED
 #include <libxml/catalog.h>
@@ -78,10 +84,68 @@ testRepeatedNextCatalog(void) {
     return ret;
 }
 
+#if HAVE_DECL_GLOB && !defined(_WIN32)
+/*
+ * Test wildcards in the default catalog list: each matching catalog is
+ * used, in sorted order, then the next entry; a pattern matching nothing
+ * is skipped.
+ */
+static int
+checkResolved(const char *pubID, const char *suffix) {
+    xmlChar *resolved = xmlCatalogResolvePublic(BAD_CAST pubID);
+    size_t len, slen = strlen(suffix);
+    int ret = 0;
+
+    if ((resolved == NULL) ||
+        ((len = strlen((const char *) resolved)) < slen) ||
+        (strcmp((const char *) resolved + len - slen, suffix) != 0)) {
+        fprintf(stderr, "CATALOG-FAILURE: %s resolved to %s, expected *%s\n",
+                pubID, resolved ? (const char *) resolved : "(null)", suffix);
+        ret = 1;
+    }
+    xmlFree(resolved);
+    return ret;
+}
+
+static int
+testWildcardDefaultCatalogs(void) {
+    char cwd[4096];
+    char files[3 * 4096 + 256];
+    int ret = 0;
+
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        fprintf(stderr, "CATALOG-FAILURE: getcwd failed\n");
+        return 1;
+    }
+    snprintf(files, sizeof(files),
+             "file://%s/test/catalogs/wildcard/nomatch/*/catalog.xml "
+             "file://%s/test/catalogs/wildcard/pkgs/*/catalog.xml "
+             "%s/test/catalogs/wildcard/etc.xml",
+             cwd, cwd, cwd);
+    setenv("XML_CATALOG_FILES", files, 1);
+
+    xmlInitParser();
+    xmlInitializeCatalog();
+
+    ret |= checkResolved("-//FLUFFY//DTD A//EN", "/pkgs/a/a.dtd");
+    ret |= checkResolved("-//FLUFFY//DTD B//EN", "/pkgs/b/b.dtd");
+    ret |= checkResolved("-//FLUFFY//DTD ETC//EN", "/wildcard/etc.dtd");
+    ret |= checkResolved("-//FLUFFY//DTD SHARED//EN", "/pkgs/a/from-a.dtd");
+
+    xmlCatalogCleanup();
+    unsetenv("XML_CATALOG_FILES");
+
+    return ret;
+}
+#endif
+
 int
 main(void) {
     int err = 0;
 
+#if HAVE_DECL_GLOB && !defined(_WIN32)
+    err |= testWildcardDefaultCatalogs();
+#endif
     err |= testRecursiveDelegateUri();
     err |= testRepeatedNextCatalog();
 
