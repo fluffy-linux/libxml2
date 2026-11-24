@@ -26,7 +26,7 @@ fi
 prefix=0
 set_prefix=
 libs=0
-libflag=--static
+libflag=--shared
 cflags=0
 modules=0
 version=0
