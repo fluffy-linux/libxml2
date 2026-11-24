@@ -16,10 +16,6 @@ v_min = v_array[1].to_int()
 v_mic = v_array[2].to_int()
 v_nbr = v_maj * 10000 + v_min * 100 + v_mic
 v_extra = ''
-r = run_command('git', 'describe', check: false)
-if (r.returncode() == 0)
-    v_extra = '-GIT' + r.stdout().strip()
-endif
 
 # install paths
 dir_prefix = get_option('prefix')
